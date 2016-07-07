@@ -20,44 +20,49 @@ definition(
     author: "Tom Rivera",
     description: "Locks a deadbolt or lever lock after a time delay when the door sensor state is closed.",
     category: "Safety & Security",
-    iconUrl: "https://dl.dropboxusercontent.com/u/54190708/LockManager/lockmanager.png",
-    iconX2Url: "https://dl.dropboxusercontent.com/u/54190708/LockManager/lockmanagerx2.png",
-    iconX3Url: "https://dl.dropboxusercontent.com/u/54190708/LockManager/lockmanagerx3.png",
+    iconUrl: "http://cdn.device-icons.smartthings.com/Health%20&%20Wellness/health7-icn.png",
+    iconX2Url: "http://cdn.device-icons.smartthings.com/Health%20&%20Wellness/health7-icn@2x.png",
+    iconX3Url: "http://cdn.device-icons.smartthings.com/Health%20&%20Wellness/health7-icn@3x.png",
     oauth: true
 )
 
 preferences {
-	section("Location") {
-    	input name: "locationName", type: "text", title: "Name:", required: true
-    }
-    section("Which door?") {
-		input "contactSensor", "capability.contactSensor", multiple: false, required: true
-	}
-    
-    section("If closed and left unlocked for this many minutes...") {
-		input "closedThresholdInMin", "number", description: "Number of minutes", required: true, defaultValue: "5"
-	}
-    
-    section("Lock the lock.") {
-		input "lock","capability.lock", multiple: false, required: true
-	}
-    
-    section("Alert if door is open for this many minutes...") {
-    	input "openThresholdInMin", "number", description: "Number of minutes", required: false, defaultValue: "10"
-    }
-    
-    section("Delay between notifications") {
-        input "frequency", "number", title: "Number of minutes", description: "", required: false, defaultValue: "10"
-    }
-	section("Via text message at this number (or via push notification if not specified") {
-        input("recipients", "contact", title: "Send notifications to") {
-            input "phone", "phone", title: "Phone number (optional)", required: false
+	page (name: "mainPage")
+}
+
+def mainPage() {
+    dynamicPage(name: "mainPage", title: "Auto Lock Time Delay Config", install: true, uninstall: true) {
+        section("Door/Lock Configuration") {
+            input "locationName", type: "text", title: "Location name", required: true
+            input "contactSensor", "capability.contactSensor", title: "Select door contact sensor", multiple: false, required: true
+            input "lock","capability.lock", title: "Select lock", multiple: false, required: true
+            input "closedThresholdInMin", "number", title: "Auto lock time (minutes)", description: "Number of minutes", required: true, defaultValue: "5"
         }
-        input "pushAndPhone", "enum", title: "Both Push and SMS?", required: false, options: ["Yes","No"]
-	}
-    //section("Override auto locking if Smoke alarm active") {
-    //	input "smokeAlarm", "capability.smokeDetector", title: "Smoke Detector", multiple: true, required: false
-    //}
+        
+        section {
+        	input(name: "smokeAlarmOverride", title: "Prevent auto locking if Smoke alarm active?", type: "bool", required: false, defaultValue: false, submitOnChange: true)
+        }
+        
+        if(smokeAlarmOverride != null && smokeAlarmOverride) {
+            section("Select Alarm(s)") {
+        		input "smokeAlarm", "capability.smokeDetector", title: "Smoke Detector", multiple: true, required: "smokeAlarmOverride"
+            }
+    	}
+
+        section {
+            input(name: "notifyIfLeftOpen", title: "Notify if door left open?", type: "bool", required: false, defaultValue: false, submitOnChange: true)
+        }
+        
+        if(notifyIfLeftOpen != null && notifyIfLeftOpen) {
+            section("Notification options"){
+                input "openThresholdInMin", "number", title: "Minutes to wait before first notification", description: "Number of minutes", required: false, defaultValue: "10"
+                input "frequency", "number", title: "Minutes to wait before resending", description: "Number of minutes", required: false, defaultValue: "10"
+                input("recipients", "contact", title: "Send notifications to") {
+                    input "phone", "phone", title: "Phone number for SMS", required: false
+                }
+            }
+        }
+    }
 }
 
 def installed()
@@ -94,11 +99,24 @@ def checkCurrentDeviceStates() {
 def subscribe() {
     subscribe(contactSensor, "contact", doorEventHandler)
     subscribe(lock, "lock", lockEventHandler)
-    //subscribe(smokeAlarm, "smoke", smokeAlarmEventHandler)
+    subscribe(smokeAlarm, "smoke", smokeAlarmEventHandler)
 }
 
-//def smokeAlarmEventHandler(evt) {
-//}
+def smokeAlarmEventHandler(evt) {
+}
+
+boolean checkForSmoke() {
+	def result = false
+	if(smokeAlarm != null) {
+        smokeAlarm.each { 
+            if(it.currentState("smoke").value == "detected") {
+                log.debug "${it.displayName} detected smoke"
+                result = true
+            }
+        }
+    }
+    return result
+}
 
 def lockEventHandler(evt) {
 	log.debug "lockEventHandler($evt.name: $evt.value), door status is ${contactSensor.currentState("contact").value}"
@@ -116,7 +134,6 @@ def lockEventHandler(evt) {
         } else if (evt.value == "unlocked") {
         	if(contactSensor.currentState("contact").value == "closed") {
             	log.trace "lockEventHandler() door closed/unlocked"
-                unschedule()
                 scheduleDoorUnlockedTooLong(closedThresholdInMin)
 				log.debug "lockEventHandler() scheduled doorUnlockedTooLong"
             } else if(contactSensor.currentState("contact").value == "open") {
@@ -131,15 +148,14 @@ def lockEventHandler(evt) {
 }
 
 def doorEventHandler(evt) {
-	unschedule()
     log.debug "doorEventHandler($evt.name: $evt.value), lock status is ${lock.currentState("lock").value}"
     
     if(evt.name == "contact") {
-    	def t0 = now()
     	if(evt.value == "open") {
-        	scheduleDoorOpenTooLong(openThresholdInMin)
-			log.debug "doorEventHandler() scheduled doorOpenTooLong"
-        	
+        	if(notifyIfLeftOpen != null && notifyIfLeftOpen) {
+        		scheduleDoorOpenTooLong(openThresholdInMin)
+				log.debug "doorEventHandler() scheduled doorOpenTooLong"
+            }
         } else if(evt.value == "closed") {
         	scheduleDoorUnlockedTooLong(closedThresholdInMin)
 			log.debug "doorEventHandler() scheduled doorUnlockedTooLong"
@@ -185,14 +201,13 @@ def doorOpenTooLong() {
 def doorUnlockedTooLong() {
 	def contactState = contactSensor.currentState("contact")
     def lockState = lock.currentState("lock")
-    //def smokeAlarmState = smokeAlarm.currentState("smoke")
     log.debug "doorUnlockedTooLong() door status is ${contactState.value}/${lockState.value}"
 
-	//if(smokeAlarmState.value == "detected") {
-    //	log.trace "doorUnlockedTooLong() smoke alarm active, delaying auto lock 30 min"
-    //    runIn(1800, doorOpenTooLong, [overwrite: false])
-	//} else 
-    if (contactState.value == "closed" && lockState.value == "unlocked") {
+	if(smokeAlarmOverride != null && smokeAlarmOverride == true && checkForSmoke() == true) {
+    	log.trace "doorUnlockedTooLong() smoke alarm(s) active, delaying auto lock 30 min"
+        sendPush("doorUnlockedTooLong() smoke alarm(s) active, delaying auto lock 30 min")
+        runIn(1800, doorOpenTooLong, [overwrite: false])
+	} else if (contactState.value == "closed" && lockState.value == "unlocked") {
     	def timeRemainingInSec = getTimeRemainingInSec(closedThresholdInMin, contactState.rawDateCreated.time)
 		if (timeRemainingInSec <= 0) {
         	log.debug "doorUnlockedTooLong() Door closed and lock timer expired (${closedThresholdInMin} min):  engaging lock"
@@ -212,17 +227,17 @@ def doorUnlockedTooLong() {
 		log.warn "doorUnlockedTooLong() called but lock is closed:  doing nothing"
 	}
 }
-void sendMessage(elapsedInMin)
+
+def sendMessage(elapsedInMin)
 {
-	def msg = "${contactSensor.displayName} reports that it has been open for ${elapsedInMin} minute(s)."
+	def msg = "${locationName} has been open for ${elapsedInMin} minute(s)."
 	log.info msg
-    if (location.contactBookEnabled) {
+    
+    sendPush(msg)
+    if (location.contactBookEnabled && recipients) {
         sendNotificationToContacts(msg, recipients)
     }
     else {
-    	if (!phone || pushAndPhone != "No") {
-            sendPush(msg)
-        }
         if (phone) {
             sendSms(phone, msg)
         }
@@ -236,10 +251,12 @@ def getDelayInSec(thresholdInMin) {
 }
 
 def scheduleDoorOpenTooLong(thresholdInMin) {
+	unschedule()
     runIn(getDelayInSec(thresholdInMin), doorOpenTooLong, [overwrite: false])
 }
 
 def scheduleDoorUnlockedTooLong(thresholdInMin) {
+	unschedule()
 	runIn(getDelayInSec(thresholdInMin), doorUnlockedTooLong, [overwrite: false])
 }
 
@@ -255,7 +272,6 @@ def getTimeRemainingInSec(thresholdInMin, lastStateChangeTime) {
     }
     
     return (thresholdInSec - elapsed)
-    
 }
 
 def getMsgResendFrequencyInSec() {
