@@ -31,7 +31,7 @@ preferences {
 }
 
 def mainPage() {
-    dynamicPage(name: "mainPage", title: "Auto Lock Time Delay Config", install: true, uninstall: true) {
+    dynamicPage(name: "mainPage", install: true, uninstall: true) {
         section("Door/Lock Configuration") {
             input "locationName", type: "text", title: "Location name", required: true
             input "contactSensor", "capability.contactSensor", title: "Select door contact sensor", multiple: false, required: true
