@@ -175,7 +175,7 @@ def doorOpenTooLong() {
     def lockState = lock.currentState("lock")
     log.debug "doorOpenTooLong() door status is ${contactState.value}/${lockState.value}"
 
-	if (contactState.value == "open") {
+	if (contactState.value == "open" && lockState.value == "unlocked") {
     	def timeRemainingInSec = getTimeRemainingInSec(openThresholdInMin, contactState.rawDateCreated.time)
 		if (timeRemainingInSec <= 0) {
         	def elapsedInMin = convertSecToMin(timeRemainingInSec * (-1)) + openThresholdInMin
@@ -193,6 +193,8 @@ def doorOpenTooLong() {
             	log.debug "doorOpenTooLong() fires again in ${convertSecToMin(timeRemainingInSec)} min"
             }
 		}
+    } else if (contactState.value == "open" && lockState.value == "locked") {
+    	sendPush("Door registers as open but is locked, probable false alarm please verify")
 	} else {
 		log.warn "doorOpenTooLong() called but contactSensor is closed:  doing nothing"
 	}
