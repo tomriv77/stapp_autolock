@@ -1,2 +1,2 @@
 # stapp_autolock
-(Smartthings app) Auto Lock Time Delay
+(SmartThings app) Auto Lock Time Delay
